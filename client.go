@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"strings"
@@ -428,49 +429,93 @@ func (c *Client) WriteFile(ctx context.Context, sandboxID string, req *WriteFile
 }
 
 // ListFiles lists files in a directory via the sandbox host
-// Note: Using the envd API /files endpoint
+// Note: Using code execution as a workaround since envd uses gRPC for this operation
 func (c *Client) ListFiles(ctx context.Context, sandboxID, path string) ([]*File, error) {
-	host := c.GetSandboxHost(sandboxID, EnvdPort)
-	// Try different possible endpoints
-	urls := []string{
-		fmt.Sprintf("https://%s/files/list?path=%s", host, path),
-		fmt.Sprintf("https://%s/files?path=%s&list=true", host, path),
-		fmt.Sprintf("https://%s/directories?path=%s", host, path),
+	// Use bash to list files and parse output
+	code := fmt.Sprintf(`import os
+import json
+path = %q
+entries = []
+for name in os.listdir(path):
+    full_path = os.path.join(path, name)
+    is_dir = os.path.isdir(full_path)
+    size = 0 if is_dir else os.path.getsize(full_path)
+    entries.append({"name": name, "path": full_path, "isDir": is_dir, "size": size})
+print(json.dumps(entries))`, path)
+
+	execution, err := c.RunCode(ctx, sandboxID, &RunCodeRequest{
+		Code:     code,
+		Language: string(Python),
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	var lastErr error
-	for _, url := range urls {
-		c.logger.Printf("Trying URL: %s", url)
-		var resp struct {
-			Entries []*File `json:"entries"`
-			Files   []*File `json:"files"`
-		}
-		err := c.doRequestToURL(ctx, "GET", url, nil, &resp)
-		if err == nil {
-			if len(resp.Entries) > 0 {
-				return resp.Entries, nil
-			}
-			return resp.Files, nil
-		}
-		lastErr = err
+	if execution.Error != nil {
+		return nil, fmt.Errorf("failed to list directory: %s", execution.Error.Value)
 	}
-	return nil, lastErr
+
+	// Parse JSON output from stdout
+	var files []*File
+	for _, log := range execution.Logs {
+		if !log.IsError {
+			if err := json.Unmarshal([]byte(log.Line), &files); err == nil {
+				return files, nil
+			}
+		}
+	}
+
+	return files, nil
 }
 
 // RemoveFile removes a file from the sandbox via the sandbox host
+// Note: Using code execution as a workaround since envd uses gRPC for this operation
 func (c *Client) RemoveFile(ctx context.Context, sandboxID, path string) error {
-	host := c.GetSandboxHost(sandboxID, EnvdPort)
-	url := fmt.Sprintf("https://%s/files?path=%s", host, path)
+	code := fmt.Sprintf(`import os
+import shutil
+path = %q
+if os.path.isdir(path):
+    shutil.rmtree(path)
+else:
+    os.remove(path)
+print("removed")`, path)
 
-	return c.doRequestToURL(ctx, "DELETE", url, nil, nil)
+	execution, err := c.RunCode(ctx, sandboxID, &RunCodeRequest{
+		Code:     code,
+		Language: string(Python),
+	})
+	if err != nil {
+		return err
+	}
+
+	if execution.Error != nil {
+		return fmt.Errorf("failed to remove: %s", execution.Error.Value)
+	}
+
+	return nil
 }
 
 // MakeDir creates a directory in the sandbox via the sandbox host
+// Note: Using code execution as a workaround since envd uses gRPC for this operation
 func (c *Client) MakeDir(ctx context.Context, sandboxID string, req *MakeDirRequest) error {
-	host := c.GetSandboxHost(sandboxID, EnvdPort)
-	url := fmt.Sprintf("https://%s/files/mkdir", host)
+	code := fmt.Sprintf(`import os
+path = %q
+os.makedirs(path, exist_ok=True)
+print("created")`, req.Path)
 
-	return c.doRequestToURL(ctx, "POST", url, req, nil)
+	execution, err := c.RunCode(ctx, sandboxID, &RunCodeRequest{
+		Code:     code,
+		Language: string(Python),
+	})
+	if err != nil {
+		return err
+	}
+
+	if execution.Error != nil {
+		return fmt.Errorf("failed to create directory: %s", execution.Error.Value)
+	}
+
+	return nil
 }
 
 // WriteFileRequest represents the request to write a file

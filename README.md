@@ -312,6 +312,31 @@ type BoxAndWhiskerChart struct { ... }
 type SuperChart struct { ... }
 ```
 
+## 实现说明
+
+### 文件系统 API
+
+本 SDK 的文件系统操作通过以下方式实现：
+
+| 操作 | 实现方式 | 状态 |
+|------|----------|------|
+| 读取文件 | REST API (`GET /files`) | ✅ |
+| 写入文件 | REST API (`POST /files`, multipart/form-data) | ✅ |
+| 列出目录 | 代码执行 (Python) | ✅ |
+| 创建目录 | 代码执行 (Python) | ✅ |
+| 删除文件/目录 | 代码执行 (Python) | ✅ |
+| 检查存在 | 代码执行 (Python) | ✅ |
+| 获取信息 | 代码执行 (Python) | ✅ |
+
+> **注意**: E2B 官方 SDK 使用 gRPC/Connect-RPC 协议进行大部分文件系统操作。本 SDK 使用代码执行作为临时方案，未来计划支持 gRPC。
+
+### 端口说明
+
+| 端口 | 用途 |
+|------|------|
+| 49999 (JupyterPort) | 代码执行 |
+| 49983 (EnvdPort) | 文件系统 REST API |
+
 ## 许可证
 
 MIT License
