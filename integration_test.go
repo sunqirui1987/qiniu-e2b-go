@@ -9,18 +9,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ClayWarren/e2b-go"
+	"github.com/sunqirui1987/qiniu-e2b-go"
 	"github.com/stretchr/testify/assert"
 )
 
 func isIntegrationTest() bool {
-	return os.Getenv("E2B_API_KEY") != ""
+	return os.Getenv("QINIU_API_KEY") != "" || os.Getenv("E2B_API_KEY") != ""
 }
 
 func getAPIKey(t *testing.T) string {
-	apiKey := os.Getenv("E2B_API_KEY")
+	apiKey := os.Getenv("QINIU_API_KEY")
 	if apiKey == "" {
-		t.Skip("E2B_API_KEY not set, skipping integration test")
+		apiKey = os.Getenv("E2B_API_KEY")
+	}
+	if apiKey == "" {
+		t.Skip("QINIU_API_KEY or E2B_API_KEY not set, skipping integration test")
 	}
 	return apiKey
 }

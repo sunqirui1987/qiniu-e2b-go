@@ -1,23 +1,27 @@
-# e2b-go
+# qiniu-e2b-go
 
-Unofficial Go SDK for [E2B](https://e2b.dev/) - Cloud runtime for AI agents.
+Go SDK for [Qiniu Sandbox](https://developer.qiniu.com/las/13283/sandbox-quickstart) - Cloud runtime for AI agents.
+
 Inspired by the [official E2B Code Interpreter SDKs](https://github.com/e2b-dev/code-interpreter).
 
-E2B is an open-source infrastructure that allows you to run AI-generated code in secure isolated sandboxes in the cloud.
+Qiniu Sandbox is an open-source infrastructure that allows you to run AI-generated code in secure isolated sandboxes in the cloud.
+It's compatible with E2B API.
 
 ## Installation
 
 ```bash
-go get github.com/ClayWarren/e2b-go
+go get github.com/sunqirui1987/qiniu-e2b-go
 ```
 
 ## Quick Start
 
-### 1. Get your E2B API key
-1. Sign up to E2B [here](https://e2b.dev/).
-2. Get your API key [here](https://e2b.dev/docs/getting-started/api-key).
+### 1. Get your Qiniu API key
+
+1. Sign up to Qiniu [here](https://portal.qiniu.com/).
+2. Get your API key from the console.
 
 ### 2. Execute code with Code Interpreter
+
 The `CodeInterpreter` provides a stateful Jupyter-like environment.
 
 ```go
@@ -28,7 +32,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/ClayWarren/e2b-go"
+	"github.com/sunqirui1987/qiniu-e2b-go"
 )
 
 func main() {
@@ -36,7 +40,7 @@ func main() {
 
 	// Create a new code interpreter sandbox
 	// By default it uses the "code-interpreter-v1" template
-	sbx, err := e2b.NewCodeInterpreter(ctx, "your-api-key")
+	sbx, err := e2b.NewCodeInterpreter(ctx, "your-qiniu-api-key")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -58,6 +62,48 @@ func main() {
 }
 ```
 
+### 3. Run shell commands
+
+You can also run shell commands in the sandbox:
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/sunqirui1987/qiniu-e2b-go"
+)
+
+func main() {
+	ctx := context.Background()
+
+	sb, err := e2b.NewSandbox(ctx, "your-qiniu-api-key")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sb.Close(ctx)
+
+	// Run a shell command
+	proc, err := sb.NewProcess("echo hello world")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := proc.Start(ctx); err != nil {
+		log.Fatal(err)
+	}
+
+	// Subscribe to stdout
+	stdout, _ := proc.SubscribeStdout(ctx)
+	for event := range stdout {
+		fmt.Println("stdout:", event.Params.Result.Line)
+	}
+}
+```
+
 ## Features
 
 - **Code Interpreter**: Stateful execution of Python/JS code with rich output support (charts, images).
@@ -66,16 +112,27 @@ func main() {
 - **Process Execution**: Start processes with environment variables and working directory.
 - **Event Streaming**: Subscribe to stdout, stderr, and exit events.
 
-## Parity with JS/Python SDK
+## Configuration
 
-This SDK is designed to be a 1:1 Go implementation of the E2B V2 specialized SDKs. It supports the same JSON-RPC methods and abstractions found in `@e2b/code-interpreter`.
+### Region
+
+By default, the SDK uses `cn-yangzhou-1` region. You can change it using:
+
+```go
+sb, err := e2b.NewSandbox(ctx, apiKey, e2b.WithRegion("cn-yangzhou-1"))
+```
+
+### Custom Base URL
+
+For advanced usage, you can set a custom base URL:
+
+```go
+sb, err := e2b.NewSandbox(ctx, apiKey, e2b.WithBaseURL("https://custom-sandbox.qiniuapi.com"))
+```
 
 ## Documentation
 
-- [E2B Documentation](https://e2b.dev/docs)
-
-## E2B Cookbook
-Visit the [E2B Cookbook](https://github.com/e2b-dev/cookbook) to get inspired by examples with different LLMs and AI frameworks.
+- [Qiniu Sandbox Documentation](https://developer.qiniu.com/las/13283/sandbox-quickstart)
 
 ## License
 

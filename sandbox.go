@@ -40,7 +40,10 @@ type (
 )
 
 const (
-	defaultBaseURL            = "https://api.e2b.dev"
+	// QiniuSandboxBaseURL is the base URL for Qiniu Sandbox.
+	// Region: cn-yangzhou-1
+	QiniuSandboxBaseURL       = "https://cn-yangzhou-1-sandbox.qiniuapi.com"
+	defaultBaseURL            = QiniuSandboxBaseURL
 	defaultWSScheme           = "wss"
 	wsRoute                   = "/ws"
 	fileRoute                 = "/file"
@@ -184,7 +187,7 @@ func (s *Sandbox) Reconnect(ctx context.Context) (err error) {
 	if err := s.ws.Close(); err != nil {
 		return err
 	}
-	urlu := fmt.Sprintf("wss://49982-%s-%s.e2b.dev/ws", s.ID, s.ClientID)
+	urlu := s.wsURL(s)
 	var resp *http.Response
 	s.ws, resp, err = websocket.DefaultDialer.Dial(urlu, nil)
 	if resp != nil {
@@ -231,5 +234,5 @@ func (s *Sandbox) Close(ctx context.Context) error {
 
 // GetHost returns the host address for the specified port.
 func (s *Sandbox) GetHost(port int) string {
-	return fmt.Sprintf("%d-%s-%s.e2b.dev", port, s.ID, s.ClientID)
+	return fmt.Sprintf("%d-%s-%s.sandbox.qiniuapi.com", port, s.ID, s.ClientID)
 }

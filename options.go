@@ -1,6 +1,7 @@
 package e2b
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 )
@@ -39,9 +40,18 @@ func WithCwd(cwd string) Option {
 
 // WithWsURL sets the websocket url resolving function for the e2b sandbox.
 //
-// This is useful for testing.
+// This is useful for testing or when using custom sandbox providers.
 func WithWsURL(wsURL func(s *Sandbox) string) Option {
 	return func(s *Sandbox) { s.wsURL = wsURL }
+}
+
+// WithRegion sets the Qiniu Sandbox region.
+//
+// Default region is cn-yangzhou-1.
+func WithRegion(region string) Option {
+	return func(s *Sandbox) {
+		s.baseURL = fmt.Sprintf("https://%s-sandbox.qiniuapi.com", region)
+	}
 }
 
 // Process Options

@@ -1,4 +1,4 @@
-module github.com/ClayWarren/e2b-go
+module github.com/sunqirui1987/qiniu-e2b-go
 
 go 1.25.5
 
