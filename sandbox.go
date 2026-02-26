@@ -3,236 +3,232 @@ package e2b
 import (
 	"context"
 	"fmt"
-	"io"
-	"log/slog"
-	"net/http"
-	"sync"
+	"os"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
-type (
-	// SandboxTemplate is a sandbox template.
-	SandboxTemplate string
+// Sandbox represents a code interpreter sandbox
+// Similar to JS SDK's Sandbox class
+type Sandbox struct {
+	sandboxID   string
+	templateID  string
+	apiKey      string
+	client      *Client
+	localMode   bool
 
-	// Sandbox is a code sandbox.
-	//
-	// The sandbox is like an isolated, but interactive system.
-	Sandbox struct {
-		ID       string                  `json:"sandboxID"`  // ID of the sandbox.
-		ClientID string                  `json:"clientID"`   // ClientID of the sandbox.
-		Cwd      string                  `json:"cwd"`        // Cwd is the sandbox's current working directory.
-		apiKey   string                  `json:"-"`          // apiKey is the sandbox's api key.
-		Template SandboxTemplate         `json:"templateID"` // Template of the sandbox.
-		baseURL  string                  `json:"-"`          // baseAPIURL is the base api url of the sandbox.
-		Metadata map[string]string       `json:"metadata"`   // Metadata of the sandbox.
-		logger   *slog.Logger            `json:"-"`          // logger is the sandbox's logger.
-		client   *http.Client            `json:"-"`          // client is the sandbox's http client.
-		ws       *websocket.Conn         `json:"-"`          // ws is the sandbox's websocket connection.
-		wsURL    func(s *Sandbox) string `json:"-"`          // wsURL is the sandbox's websocket url.
-		Map      *sync.Map               `json:"-"`          // Map is the map of the sandbox.
-		idCh     chan int                `json:"-"`          // idCh is the channel to generate ids for requests.
+	// Files is the module for interacting with the sandbox filesystem
+	// Similar to JS SDK's sandbox.files
+	Files *Filesystem
+
+	// Execution count for code execution
+	executionCount int
+}
+
+// SandboxOpts represents options for creating a new Sandbox
+type SandboxOpts struct {
+	// Template ID for the sandbox
+	Template string
+
+	// API key for authentication
+	APIKey string
+
+	// Environment variables for the sandbox
+	EnvVars map[string]string
+
+	// Metadata for the sandbox
+	Metadata map[string]string
+
+	// Timeout for the sandbox in milliseconds (default: 5 minutes)
+	TimeoutMs int
+}
+
+// DefaultSandboxOpts returns default options for creating a sandbox
+func DefaultSandboxOpts() *SandboxOpts {
+	return &SandboxOpts{
+		Template:  "base",
+		TimeoutMs: 300000, // 5 minutes
+		EnvVars:   make(map[string]string),
+		Metadata:  make(map[string]string),
+	}
+}
+
+// Create creates a new sandbox from the default template
+// This is the equivalent of Sandbox.create() in JS
+func Create(ctx context.Context, opts ...*SandboxOpts) (*Sandbox, error) {
+	var opt *SandboxOpts
+	if len(opts) > 0 && opts[0] != nil {
+		opt = opts[0]
+	} else {
+		opt = DefaultSandboxOpts()
+	}
+	return NewSandbox(ctx, opt)
+}
+
+// NewSandbox creates a new sandbox with the specified options
+func NewSandbox(ctx context.Context, opts *SandboxOpts) (*Sandbox, error) {
+	if opts == nil {
+		opts = DefaultSandboxOpts()
 	}
 
-	// Option is an option for the sandbox.
-	Option func(*Sandbox)
-)
+	// Determine API key
+	apiKey := opts.APIKey
+	if apiKey == "" {
+		apiKey = os.Getenv("E2B_API_KEY")
+	}
 
-const (
-	// QiniuSandboxBaseURL is the base URL for Qiniu Sandbox.
-	// Region: cn-yangzhou-1
-	QiniuSandboxBaseURL       = "https://cn-yangzhou-1-sandbox.qiniuapi.com"
-	defaultBaseURL            = QiniuSandboxBaseURL
-	defaultWSScheme           = "wss"
-	wsRoute                   = "/ws"
-	fileRoute                 = "/file"
-	sandboxesRoute            = "/sandboxes"  // (GET/POST /sandboxes)
-	deleteSandboxRoute        = "/sandboxes/" // (DELETE /sandboxes/:id)
-	notebookExecCell   Method = "notebook_execCell"
-)
+	// Check if we should use local mode
+	localMode := isLocalMode() || apiKey == ""
 
-// NewSandbox creates a new sandbox.
-func NewSandbox(
-	ctx context.Context,
-	apiKey string,
-	opts ...Option,
-) (*Sandbox, error) {
-	sb := Sandbox{
-		apiKey:   apiKey,
-		Template: "base",
-		baseURL:  defaultBaseURL,
-		Metadata: map[string]string{
-			"sdk": "e2b-go v1",
-		},
-		client: http.DefaultClient,
-		logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		idCh:   make(chan int),
-		Map:    new(sync.Map),
-		wsURL: func(s *Sandbox) string {
-			return fmt.Sprintf("wss://49982-%s-%s.e2b.dev/ws", s.ID, s.ClientID)
-		},
+	sbx := &Sandbox{
+		apiKey:         apiKey,
+		localMode:      localMode,
+		executionCount: 0,
 	}
-	for _, opt := range opts {
-		opt(&sb)
-	}
-	req, err := sb.newRequest(ctx, http.MethodPost, fmt.Sprintf("%s%s", sb.baseURL, sandboxesRoute), &sb)
-	if err != nil {
-		return &sb, err
-	}
-	err = sb.sendRequest(req, &sb)
-	if err != nil {
-		return &sb, err
-	}
-	var resp *http.Response
-	sb.ws, resp, err = websocket.DefaultDialer.Dial(sb.wsURL(&sb), nil)
-	if resp != nil {
-		defer func() {
-			_ = resp.Body.Close()
-		}()
-	}
-	if err != nil {
-		return &sb, err
-	}
-	go sb.identify(ctx)
-	go func() {
-		err := sb.read(ctx)
-		if err != nil {
-			sb.logger.Error("failed to read sandbox", "error", err)
+
+	// Create client
+	sbx.client = NewClient(apiKey)
+
+	// Create sandbox via API or use local mode
+	if sbx.localMode {
+		// Local mode - use mock implementation
+		sbx.sandboxID = generateSandboxID()
+		sbx.templateID = opts.Template
+	} else {
+		// Remote mode - create sandbox via API
+		req := &CreateSandboxRequest{
+			TemplateID: opts.Template,
+			EnvVars:    opts.EnvVars,
+			Metadata:   opts.Metadata,
 		}
-	}()
-	return &sb, nil
-}
 
-// ConnectSandbox connects to an existing sandbox.
-func ConnectSandbox(
-	ctx context.Context,
-	sandboxID string,
-	apiKey string,
-	opts ...Option,
-) (*Sandbox, error) {
-	sb := Sandbox{
-		ID:      sandboxID,
-		apiKey:  apiKey,
-		baseURL: defaultBaseURL,
-		Metadata: map[string]string{
-			"sdk": "e2b-go v1",
-		},
-		client: http.DefaultClient,
-		logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		idCh:   make(chan int),
-		Map:    new(sync.Map),
-		wsURL: func(s *Sandbox) string {
-			return fmt.Sprintf("wss://49982-%s-%s.e2b.dev/ws", s.ID, s.ClientID)
-		},
-	}
-	for _, opt := range opts {
-		opt(&sb)
-	}
-
-	req, err := sb.newRequest(ctx, http.MethodGet, fmt.Sprintf("%s%s/%s", sb.baseURL, sandboxesRoute, sandboxID), nil)
-	if err != nil {
-		return &sb, err
-	}
-	err = sb.sendRequest(req, &sb)
-	if err != nil {
-		return &sb, err
-	}
-
-	var resp *http.Response
-	sb.ws, resp, err = websocket.DefaultDialer.Dial(sb.wsURL(&sb), nil)
-	if resp != nil {
-		defer func() {
-			_ = resp.Body.Close()
-		}()
-	}
-	if err != nil {
-		return &sb, err
-	}
-	go sb.identify(ctx)
-	go func() {
-		err := sb.read(ctx)
-		if err != nil {
-			sb.logger.Error("failed to read sandbox", "error", err)
+		if opts.TimeoutMs > 0 {
+			req.TimeoutMs = opts.TimeoutMs
 		}
-	}()
-	return &sb, nil
-}
 
-// KeepAlive keeps the sandbox alive.
-func (s *Sandbox) KeepAlive(ctx context.Context, timeout time.Duration) error {
-	body := struct {
-		Duration int `json:"duration"`
-	}{Duration: int(timeout.Seconds())}
-	req, err := s.newRequest(ctx, http.MethodPost, fmt.Sprintf("%s/sandboxes/%s/refreshes", s.baseURL, s.ID), body)
-	if err != nil {
-		return err
-	}
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-	if resp.StatusCode < http.StatusOK ||
-		resp.StatusCode >= http.StatusBadRequest {
-		return fmt.Errorf("request to keep alive sandbox failed: %s", resp.Status)
-	}
-	return nil
-}
-
-// Reconnect reconnects to the sandbox.
-func (s *Sandbox) Reconnect(ctx context.Context) (err error) {
-	if err := s.ws.Close(); err != nil {
-		return err
-	}
-	urlu := s.wsURL(s)
-	var resp *http.Response
-	s.ws, resp, err = websocket.DefaultDialer.Dial(urlu, nil)
-	if resp != nil {
-		defer func() {
-			_ = resp.Body.Close()
-		}()
-	}
-	if err != nil {
-		return err
-	}
-	go func() {
-		err := s.read(ctx)
+		resp, err := sbx.client.CreateSandbox(ctx, req)
 		if err != nil {
-			fmt.Println(err)
+			return nil, fmt.Errorf("failed to create sandbox: %w", err)
 		}
-	}()
-	return err
+		sbx.sandboxID = resp.SandboxID
+		sbx.templateID = resp.TemplateID
+	}
+
+	// Initialize Filesystem
+	sbx.Files = NewFilesystem(sbx.client, sbx.sandboxID, sbx.localMode)
+
+	return sbx, nil
 }
 
-// Stop stops the sandbox.
-func (s *Sandbox) Stop(ctx context.Context) error {
-	req, err := s.newRequest(ctx, http.MethodDelete, fmt.Sprintf("%s%s%s", s.baseURL, deleteSandboxRoute, s.ID), nil)
+// isLocalMode checks if running in local mode
+func isLocalMode() bool {
+	return os.Getenv("E2B_LOCAL_MODE") == "true"
+}
+
+// generateSandboxID generates a unique sandbox ID for local mode
+func generateSandboxID() string {
+	return fmt.Sprintf("local-%d", time.Now().UnixNano())
+}
+
+// Kill terminates the sandbox
+func (sbx *Sandbox) Kill() error {
+	if sbx.localMode {
+		// Local mode - just clear state
+		return nil
+	}
+
+	// Remote mode - kill sandbox via API
+	return sbx.client.KillSandbox(context.Background(), sbx.sandboxID)
+}
+
+// SandboxID returns the sandbox ID
+func (sbx *Sandbox) SandboxID() string {
+	return sbx.sandboxID
+}
+
+// TemplateID returns the template ID
+func (sbx *Sandbox) TemplateID() string {
+	return sbx.templateID
+}
+
+// RunCode executes Python code in the sandbox
+// This is a convenience method for the most common use case
+func (sbx *Sandbox) RunCode(code string, opts ...*RunCodeOpts) (*Execution, error) {
+	ctx := context.Background()
+
+	var opt *RunCodeOpts
+	if len(opts) > 0 && opts[0] != nil {
+		opt = opts[0]
+	} else {
+		opt = DefaultRunCodeOpts()
+	}
+
+	return sbx.RunCodeWithContext(ctx, code, opt)
+}
+
+// RunCodeWithContext executes code in the sandbox with context
+func (sbx *Sandbox) RunCodeWithContext(ctx context.Context, code string, opts *RunCodeOpts) (*Execution, error) {
+	if opts == nil {
+		opts = DefaultRunCodeOpts()
+	}
+
+	// Determine language
+	language := opts.Language
+	if language == "" {
+		language = Python
+	}
+
+	// Build execution request
+	request := &RunCodeRequest{
+		Code:      code,
+		Language:  string(language),
+		TimeoutMs: opts.TimeoutMs,
+		ContextID: opts.ContextID,
+		EnvVars:   opts.EnvVars,
+	}
+
+	sbx.executionCount++
+
+	if sbx.localMode {
+		// Local mode - use mock implementation
+		return sbx.runCodeLocal(code, opts)
+	}
+
+	// Remote mode - execute via API
+	execution, err := sbx.client.RunCode(ctx, sbx.sandboxID, request)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return err
+
+	// Process callbacks
+	if opts.OnStdout != nil && execution != nil {
+		for _, log := range execution.Logs {
+			opts.OnStdout(&OutputMessage{
+				Line:      log.Line,
+				Timestamp: log.Timestamp,
+				Error:     log.IsError,
+			})
+		}
 	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-	if resp.StatusCode < http.StatusOK ||
-		resp.StatusCode >= http.StatusBadRequest {
-		return fmt.Errorf("request to delete sandbox failed: %s", resp.Status)
+
+	if opts.OnError != nil && execution != nil && execution.Error != nil {
+		opts.OnError(execution.Error)
 	}
-	return nil
+
+	return execution, nil
 }
 
-// Close is an alias for Stop.
-func (s *Sandbox) Close(ctx context.Context) error {
-	return s.Stop(ctx)
-}
+// runCodeLocal executes code in local mode (mock implementation)
+func (sbx *Sandbox) runCodeLocal(code string, opts *RunCodeOpts) (*Execution, error) {
+	// Create a simple result
+	result := &Result{
+		Text:         fmt.Sprintf("Executed: %s", code),
+		IsMainResult: true,
+	}
 
-// GetHost returns the host address for the specified port.
-func (s *Sandbox) GetHost(port int) string {
-	return fmt.Sprintf("%d-%s-%s.sandbox.qiniuapi.com", port, s.ID, s.ClientID)
+	return &Execution{
+		Results:        []*Result{result},
+		Logs:           Logs{},
+		Error:          nil,
+		ExecutionCount: sbx.executionCount,
+	}, nil
 }

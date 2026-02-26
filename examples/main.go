@@ -4,145 +4,100 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 
-	"github.com/sunqirui1987/qiniu-e2b-go"
+	e2b "github.com/qiniu/e2b-go"
 )
 
 func main() {
+	// Set environment variables (or they can be set externally)
+	os.Setenv("E2B_API_KEY", os.Getenv("E2B_API_KEY"))
+	os.Setenv("E2B_API_URL", "https://cn-yangzhou-1-sandbox.qiniuapi.com")
+
 	ctx := context.Background()
 
-	// Replace with your Qiniu API key
-	// Get it from: https://portal.qiniu.com/
-	apiKey := "your-qiniu-api-key"
+	// Create a new sandbox (similar to JS: const sbx = await Sandbox.create())
+	sbx, err := e2b.Create(ctx, &e2b.SandboxOpts{
+		Template:  "code-interpreter-v1", // Template ID
+		TimeoutMs: 300000,                // 5 minutes
+		EnvVars: map[string]string{
+			"FOO": "bar",
+		},
+	})
+	if err != nil {
+		log.Fatalf("Failed to create sandbox: %v", err)
+	}
 
-	// Example 1: Basic Sandbox with process execution
-	basicSandbox(ctx, apiKey)
+	fmt.Printf("Sandbox created: %s\n", sbx.SandboxID())
 
-	// Example 2: Code Interpreter
-	// codeInterpreter(ctx, apiKey)
+	// Run Python code in the sandbox
+	fmt.Println("\n=== Running Python code ===")
+	pythonExecution, err := sbx.RunCode(`print("hello world from python")`, &e2b.RunCodeOpts{
+		Language: e2b.Python,
+	})
+	if err != nil {
+		log.Fatalf("Failed to run Python code: %v", err)
+	}
+	printExecution(pythonExecution)
 
-	// Example 3: File operations
-	// fileOperations(ctx, apiKey)
+	// Run JavaScript code in the sandbox
+	fmt.Println("\n=== Running JavaScript code ===")
+	jsExecution, err := sbx.RunCode(`console.log("hello world from javascript")`, &e2b.RunCodeOpts{
+		Language: e2b.JavaScript,
+	})
+	if err != nil {
+		log.Fatalf("Failed to run JavaScript code: %v", err)
+	}
+	printExecution(jsExecution)
+
+	// Run more JavaScript with calculations
+	fmt.Println("\n=== Running JavaScript with calculations ===")
+	jsExecution2, err := sbx.RunCode(`
+const sum = (a, b) => a + b;
+console.log("1 + 2 =", sum(1, 2));
+for (let i = 0; i < 3; i++) {
+  console.log("iteration", i);
+}
+	`, &e2b.RunCodeOpts{
+		Language: e2b.JavaScript,
+	})
+	if err != nil {
+		log.Fatalf("Failed to run JavaScript code: %v", err)
+	}
+	printExecution(jsExecution2)
+
+	// Kill the sandbox (similar to JS: await sbx.kill())
+	err = sbx.Kill()
+	if err != nil {
+		log.Fatalf("Failed to kill sandbox: %v", err)
+	}
+
+	fmt.Println("\nSandbox killed successfully")
 }
 
-func basicSandbox(ctx context.Context, apiKey string) {
-	fmt.Println("=== Basic Sandbox Example ===")
-
-	// Create a new sandbox
-	sb, err := e2b.NewSandbox(ctx, apiKey)
-	if err != nil {
-		log.Fatal(err)
+func printExecution(execution *e2b.Execution) {
+	fmt.Printf("  Execution Count: %d\n", execution.ExecutionCount)
+	if execution.Error != nil {
+		fmt.Printf("  Error: %s - %s\n", execution.Error.Name, execution.Error.Value)
 	}
-	defer sb.Close(ctx)
-
-	fmt.Printf("Sandbox ID: %s\n", sb.ID)
-
-	// Run a shell command
-	proc, err := sb.NewProcess("echo hello world")
-	if err != nil {
-		log.Fatal(err)
+	// Print stdout/stderr logs
+	for _, logEntry := range execution.Logs {
+		streamType := "stdout"
+		if logEntry.IsError {
+			streamType = "stderr"
+		}
+		fmt.Printf("  [%s] %s", streamType, logEntry.Line)
 	}
-
-	if err := proc.Start(ctx); err != nil {
-		log.Fatal(err)
-	}
-
-	// Subscribe to stdout
-	stdout, _ := proc.SubscribeStdout(ctx)
-	for event := range stdout {
-		fmt.Println("stdout:", event.Params.Result.Line)
-	}
-
-	// List files in the sandbox
-	files, err := sb.Ls(ctx, "/")
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Files in root:")
-	for _, f := range files {
-		fmt.Printf("  %s (dir: %v)\n", f.Name, f.IsDir)
-	}
-}
-
-func codeInterpreter(ctx context.Context, apiKey string) {
-	fmt.Println("=== Code Interpreter Example ===")
-
-	// Create a new code interpreter sandbox
-	sbx, err := e2b.NewCodeInterpreter(ctx, apiKey)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sbx.Close(ctx)
-
-	// Execute code - first cell
-	_, err = sbx.RunCode(ctx, "x = 1")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Execute code - second cell (state is preserved)
-	execution, err := sbx.RunCode(ctx, "x += 1; x")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println("Result:", execution.Text()) // Outputs: 2
-
-	// More complex example with data visualization
-	exec, err := sbx.RunCode(ctx, `
-import matplotlib.pyplot as plt
-import numpy as np
-
-x = np.linspace(0, 10, 100)
-y = np.sin(x)
-
-plt.figure(figsize=(8, 4))
-plt.plot(x, y)
-plt.title('Sine Wave')
-plt.savefig('sine.png')
-print('Plot saved to sine.png')
-`)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(exec.Text())
-}
-
-func fileOperations(ctx context.Context, apiKey string) {
-	fmt.Println("=== File Operations Example ===")
-
-	sb, err := e2b.NewSandbox(ctx, apiKey)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sb.Close(ctx)
-
-	// Write a file
-	err = sb.Write(ctx, "/home/user/test.txt", []byte("Hello from Qiniu Sandbox!"))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Read the file
-	content, err := sb.Read(ctx, "/home/user/test.txt")
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("File content:", content)
-
-	// List files
-	files, err := sb.Ls(ctx, "/home/user")
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Files in /home/user:")
-	for _, f := range files {
-		fmt.Printf("  %s (dir: %v)\n", f.Name, f.IsDir)
-	}
-
-	// Create a directory
-	err = sb.Mkdir(ctx, "/home/user/newdir")
-	if err != nil {
-		log.Fatal(err)
+	// Print results
+	for _, result := range execution.Results {
+		if result.Text != "" {
+			fmt.Printf("  Result: %s\n", result.Text)
+		}
+		if result.HTML != "" {
+			fmt.Printf("  HTML: %s\n", result.HTML)
+		}
+		if result.Markdown != "" {
+			fmt.Printf("  Markdown: %s\n", result.Markdown)
+		}
 	}
 }

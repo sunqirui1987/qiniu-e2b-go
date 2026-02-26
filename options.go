@@ -1,67 +1,58 @@
 package e2b
 
-import (
-	"fmt"
-	"log/slog"
-	"net/http"
-)
+// RunCodeOpts represents options for running code
+type RunCodeOpts struct {
+	// Callback for handling stdout messages
+	OnStdout func(*OutputMessage)
 
-// E2B Sandbox Options
+	// Callback for handling stderr messages
+	OnStderr func(*OutputMessage)
 
-// WithBaseURL sets the base URL for the e2b sandbox.
-func WithBaseURL(baseURL string) Option {
-	return func(s *Sandbox) { s.baseURL = baseURL }
+	// Callback for handling the final execution result
+	OnResult func(*Result)
+
+	// Callback for handling the ExecutionError object
+	OnError func(*ExecutionError)
+
+	// Custom environment variables for code execution
+	EnvVars map[string]string
+
+	// Timeout for the code execution in milliseconds
+	TimeoutMs int
+
+	// Language for code execution
+	Language Language
+
+	// Context ID for code execution
+	ContextID string
 }
 
-// WithClient sets the client for the e2b sandbox.
-func WithClient(client *http.Client) Option {
-	return func(s *Sandbox) { s.client = client }
-}
-
-// WithLogger sets the logger for the e2b sandbox.
-func WithLogger(logger *slog.Logger) Option {
-	return func(s *Sandbox) { s.logger = logger }
-}
-
-// WithTemplate sets the template for the e2b sandbox.
-func WithTemplate(template SandboxTemplate) Option {
-	return func(s *Sandbox) { s.Template = template }
-}
-
-// WithMetaData sets the meta data for the e2b sandbox.
-func WithMetaData(metaData map[string]string) Option {
-	return func(s *Sandbox) { s.Metadata = metaData }
-}
-
-// WithCwd sets the current working directory.
-func WithCwd(cwd string) Option {
-	return func(s *Sandbox) { s.Cwd = cwd }
-}
-
-// WithWsURL sets the websocket url resolving function for the e2b sandbox.
-//
-// This is useful for testing or when using custom sandbox providers.
-func WithWsURL(wsURL func(s *Sandbox) string) Option {
-	return func(s *Sandbox) { s.wsURL = wsURL }
-}
-
-// WithRegion sets the Qiniu Sandbox region.
-//
-// Default region is cn-yangzhou-1.
-func WithRegion(region string) Option {
-	return func(s *Sandbox) {
-		s.baseURL = fmt.Sprintf("https://%s-sandbox.qiniuapi.com", region)
+// DefaultRunCodeOpts returns default options for running code
+func DefaultRunCodeOpts() *RunCodeOpts {
+	return &RunCodeOpts{
+		EnvVars:   make(map[string]string),
+		TimeoutMs: 60000, // 60 seconds
+		Language:  Python,
 	}
 }
 
-// Process Options
+// CreateCodeContextOpts represents options for creating a code context
+type CreateCodeContextOpts struct {
+	// Working directory for the context
+	Cwd string
 
-// ProcessWithEnv sets the environment variables for the process.
-func ProcessWithEnv(env map[string]string) ProcessOption {
-	return func(p *Process) { p.Env = env }
+	// Language for the context
+	Language Language
+
+	// Timeout for the request in milliseconds
+	RequestTimeoutMs int
 }
 
-// ProcessWithCwd sets the current working directory for the process.
-func ProcessWithCwd(cwd string) ProcessOption {
-	return func(p *Process) { p.Cwd = cwd }
+// DefaultCreateCodeContextOpts returns default options for creating a code context
+func DefaultCreateCodeContextOpts() *CreateCodeContextOpts {
+	return &CreateCodeContextOpts{
+		Cwd:              "/home/user",
+		Language:         Python,
+		RequestTimeoutMs: 30000, // 30 seconds
+	}
 }
