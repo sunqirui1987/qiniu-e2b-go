@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	e2b "github.com/qiniu/e2b-go"
+	e2b "github.com/sunqirui1987/qiniu-e2b-go"
 )
 
 func main() {

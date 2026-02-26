@@ -1,7 +1,7 @@
 # Qiniu E2B Go SDK
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/qiniu/e2b-go.svg)](https://pkg.go.dev/github.com/qiniu/e2b-go)
-[![Go Report Card](https://goreportcard.com/badge/github.com/qiniu/e2b-go)](https://goreportcard.com/report/github.com/qiniu/e2b-go)
+[![Go Reference](https://pkg.go.dev/badge/github.com/sunqirui1987/qiniu-e2b-go.svg)](https://pkg.go.dev/github.com/sunqirui1987/qiniu-e2b-go)
+[![Go Report Card](https://goreportcard.com/badge/github.com/sunqirui1987/qiniu-e2b-go)](https://goreportcard.com/report/github.com/sunqirui1987/qiniu-e2b-go)
 
 Go SDK for Qiniu Cloud E2B Sandbox - 在云端安全沙箱中执行代码和管理文件系统。
 
@@ -16,7 +16,7 @@ Go SDK for Qiniu Cloud E2B Sandbox - 在云端安全沙箱中执行代码和管�
 ## 安装
 
 ```bash
-go get github.com/qiniu/e2b-go
+go get github.com/sunqirui1987/qiniu-e2b-go
 ```
 
 ## 快速开始
@@ -32,7 +32,7 @@ import (
     "log"
     "os"
 
-    e2b "github.com/qiniu/e2b-go"
+    e2b "github.com/sunqirui1987/qiniu-e2b-go"
 )
 
 func main() {
